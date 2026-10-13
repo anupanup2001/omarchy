@@ -62,6 +62,13 @@ fprintd_sees_no_device() {
   [[ $(fprintd-list "$USER" 2>&1) == *"No devices available"* ]]
 }
 
+# Runs as an exit trap inside setup_goodix_tod_driver, so it reads that function's removed list.
+restore_open_libfprint() {
+  if (( ${#removed[@]} > 0 )); then
+    sudo pacman -S --noconfirm --ask 4 -- "${removed[@]}"
+  fi
+}
+
 setup_goodix_tod_driver() {
   # Goodix 53xc readers (Dell machines) have no open libfprint driver, so
   # nothing claims the sensor and fprintd reports no devices. Dell ships a
@@ -85,20 +92,21 @@ setup_goodix_tod_driver() {
   # provides, so match the exact package name before removing it. Deps-only
   # keeps an installed fprintd in place.
   local removed=()
+  # A failed or interrupted build puts the open provider back, so fprintd is never
+  # left without libfprint; --ask 4 replaces libfprint-tod if it got that far.
+  trap restore_open_libfprint EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   for provider in libfprint libfprint-git; do
     if pacman -Qq -- "$provider" 2>/dev/null | grep -Fxq -- "$provider"; then
-      sudo pacman -Rdd --noconfirm "$provider"
+      # Recorded first: a signal during the removal runs the trap before the next line would.
       removed+=("$provider")
+      sudo pacman -Rdd --noconfirm "$provider" || exit 1
     fi
   done
-  if ! omarchy-pkg-aur-add libfprint-tod libfprint-goodix-53xc; then
-    # Put the open provider back so a failed build does not leave fprintd
-    # without libfprint; --ask 4 replaces libfprint-tod if it got that far.
-    if (( ${#removed[@]} > 0 )); then
-      sudo pacman -S --noconfirm --ask 4 -- "${removed[@]}"
-    fi
-    exit 1
-  fi
+  omarchy-pkg-aur-add libfprint-tod libfprint-goodix-53xc || exit 1
+  trap - EXIT HUP INT TERM
 
   # fprintd loads TOD plugins when libfprint initializes, and the driver
   # installs a udev rule for the reader. Reload the rules and stop the daemon
