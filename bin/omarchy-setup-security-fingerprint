@@ -84,12 +84,21 @@ setup_goodix_tod_driver() {
   # install answers the conflict prompt with N and aborts. pacman -Qq resolves
   # provides, so match the exact package name before removing it. Deps-only
   # keeps an installed fprintd in place.
+  local removed=()
   for provider in libfprint libfprint-git; do
     if pacman -Qq -- "$provider" 2>/dev/null | grep -Fxq -- "$provider"; then
       sudo pacman -Rdd --noconfirm "$provider"
+      removed+=("$provider")
     fi
   done
-  omarchy-pkg-aur-add libfprint-tod libfprint-goodix-53xc || exit 1
+  if ! omarchy-pkg-aur-add libfprint-tod libfprint-goodix-53xc; then
+    # Put the open provider back so a failed build does not leave fprintd
+    # without libfprint; --ask 4 replaces libfprint-tod if it got that far.
+    if (( ${#removed[@]} > 0 )); then
+      sudo pacman -S --noconfirm --ask 4 -- "${removed[@]}"
+    fi
+    exit 1
+  fi
 
   # fprintd loads TOD plugins when libfprint initializes, and the driver
   # installs a udev rule for the reader. Reload the rules and stop the daemon
