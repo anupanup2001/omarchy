@@ -59,9 +59,11 @@ cat > "$scratch/bin/fprintd-enroll" <<'STUB'
 echo enroll >> "$CALL_LOG"
 exit "${ENROLL_STATUS:-1}"
 STUB
-# DRIVER_STATUS stands in for whether any installed driver claimed the reader.
+# DRIVER_STATUS stands in for whether any installed driver claimed the reader;
+# DRIVER_OUTPUT is what fprintd said when it did not.
 cat > "$scratch/bin/fprintd-list" <<'STUB'
 #!/bin/bash
+(( ${DRIVER_STATUS:-0} == 0 )) || echo "${DRIVER_OUTPUT:-No devices available}"
 exit "${DRIVER_STATUS:-0}"
 STUB
 cat > "$scratch/bin/fprintd-verify" <<'STUB'
@@ -130,6 +132,15 @@ if grep -qx enroll "$CALL_LOG"; then
   fail "a driverless reader does not attempt enrollment"
 fi
 pass "a driverless reader is reported instead of enrolling"
+
+# Any other fprintd-list failure says nothing about the driver, so it is left
+# for enrollment to report, as it was before the pre-flight.
+DRIVER_STATUS=1 DRIVER_OUTPUT='ListEnrolledFingers failed: Not Authorized' TOD_STATUS=0 run_setup
+grep -qx enroll "$CALL_LOG" || fail "a non-device fprintd failure still reaches enrollment"
+if grep -q 'no open-source driver\|No installed driver supports' "$scratch/output"; then
+  fail "a non-device fprintd failure is not blamed on the driver"
+fi
+pass "a non-device fprintd failure is not blamed on the driver"
 
 HARDWARE_STATUS=1 run_setup
 [[ ! -s $CALL_LOG ]] || fail "missing hardware stops before package operations"

@@ -56,6 +56,12 @@ EOF
   fi
 }
 
+# Only fprintd's own answer means no driver claimed the reader; a permission or
+# D-Bus failure is left for enrollment to report rather than blamed on the driver.
+fprintd_sees_no_device() {
+  [[ $(fprintd-list "$USER" 2>&1) == *"No devices available"* ]]
+}
+
 setup_goodix_tod_driver() {
   # Goodix 53xc readers (Dell machines) have no open libfprint driver, so
   # nothing claims the sensor and fprintd reports no devices. Dell ships a
@@ -92,7 +98,7 @@ setup_goodix_tod_driver() {
   sudo udevadm trigger
   sudo systemctl stop fprintd 2>/dev/null || true
 
-  if ! fprintd-list "$USER" &>/dev/null; then
+  if fprintd_sees_no_device; then
     echo -e "\e[31m\nThe driver is installed, but fprintd still sees no devices.\e[0m"
     echo "The reader sometimes needs a reboot before it answers a new driver."
     exit 1
@@ -128,7 +134,7 @@ fi
 # dies instantly on "No devices available" with nothing pointing at the
 # real problem. Ask fprintd before putting a finger on glass, and route
 # Goodix 53xc readers to Dell's proprietary driver.
-if ! fprintd-list "$USER" &>/dev/null; then
+if fprintd_sees_no_device; then
   if omarchy-hw-fingerprint-tod; then
     setup_goodix_tod_driver
   else
